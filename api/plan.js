@@ -119,11 +119,16 @@ For any smaller intermediate village between ${location} and these anchor points
     // Try to fetch REAL weather data for the given location (free, no key needed)
     if (location) {
       try {
+        // Request multiple candidates so we can pick the right country —
+        // tiny Camino villages can lose to bigger same-named places elsewhere
+        // (e.g. there's also a "Roncesvalles" in Colombia with a much bigger population)
         const geoRes = await fetch(
-          'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(location) + '&count=1'
+          'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(location) + '&count=10'
         );
         const geoData = await geoRes.json();
-        const place = geoData.results && geoData.results[0];
+        const results = geoData.results || [];
+        const wantCountry = ['saint-jean-pied-de-port', 'orisson'].includes(normalize(location)) ? 'FR' : 'ES';
+        const place = results.find(r => r.country_code === wantCountry) || results[0];
 
         if (place) {
           const wRes = await fetch(
@@ -133,7 +138,7 @@ For any smaller intermediate village between ${location} and these anchor points
 
           if (wData.daily && wData.daily.temperature_2m_max) {
             const d = wData.daily;
-            finalPrompt += `\n\nREAL CURRENT WEATHER DATA for ${location} (lat ${place.latitude}, lon ${place.longitude}) — use these EXACT numbers in your "weather" field, do NOT invent different numbers:
+            finalPrompt += `\n\nREAL CURRENT WEATHER DATA for ${location}, ${place.country || ''} (lat ${place.latitude}, lon ${place.longitude}) — use these EXACT numbers in your "weather" field, do NOT invent different numbers:
 Today: high ${Math.round(d.temperature_2m_max[0])}°C, low ${Math.round(d.temperature_2m_min[0])}°C, ${d.precipitation_probability_max[0]}% chance of rain.
 Tomorrow: high ${Math.round(d.temperature_2m_max[1])}°C, low ${Math.round(d.temperature_2m_min[1])}°C, ${d.precipitation_probability_max[1]}% chance of rain.`;
           }
