@@ -56,7 +56,7 @@ Tomorrow: high ${Math.round(d.temperature_2m_max[1])}°C, low ${Math.round(d.tem
     }
 
     const body = {
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1800,
       messages: [{ role: 'user', content: finalPrompt }],
     };
