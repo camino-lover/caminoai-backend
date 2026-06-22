@@ -36,16 +36,24 @@ const STAGE_TABLE = [
   { from: 'O Pedrouzo', to: 'Santiago de Compostela', km: 19.4 },
 ];
 
-// Build a lookup of cumulative km at arrival for every named stop in the table
-function buildCumulativeMap() {
-  const map = { 'saint-jean-pied-de-port': 0 };
-  let cum = 0;
-  for (const stage of STAGE_TABLE) {
-    cum += stage.km;
-    map[normalize(stage.to)] = cum;
-  }
-  return map;
-}
+// Full ordered list of named stops on the route, including small hamlets between
+// the major verified towns above — mirrors the autocomplete list in the app.
+const STAGES = [
+  'Saint-Jean-Pied-de-Port','Orisson','Roncesvalles','Burguete','Espinal',
+  'Zubiri','Larrasoaña','Pamplona','Cizur Menor','Zariquiegui',
+  'Uterga','Muruzábal','Obanos','Puente la Reina','Mañeru','Cirauqui',
+  'Lorca','Estella','Ayegui','Los Arcos','Sansol','Torres del Río','Viana',
+  'Logroño','Navarrete','Nájera','Azofra','Santo Domingo de la Calzada',
+  'Grañón','Redecilla del Camino','Belorado','Villafranca Montes de Oca',
+  'San Juan de Ortega','Burgos','Tardajos','Hornillos del Camino','Hontanas',
+  'Castrojeriz','Boadilla del Camino','Frómista','Carrión de los Condes',
+  'Calzadilla de la Cueza','Terradillos de los Templarios','Sahagún',
+  'Mansilla de las Mulas','León','Hospital de Órbigo','Astorga',
+  'Rabanal del Camino','Foncebadón','Cruz de Ferro','El Acebo','Molinaseca',
+  'Ponferrada','Villafranca del Bierzo','O Cebreiro','Triacastela','Samos',
+  'Sarria','Portomarín','Palas de Rei','Melide','Arzúa','O Pedrouzo',
+  'Monte do Gozo','Santiago de Compostela',
+];
 
 function normalize(str) {
   return (str || '')
@@ -55,20 +63,80 @@ function normalize(str) {
     .trim();
 }
 
-// Find verified anchor points (real, sourced distances) near the given start location
+// Build a lookup of cumulative km at arrival for every MAJOR verified town
+function buildCumulativeMap() {
+  const map = { [normalize('Saint-Jean-Pied-de-Port')]: 0 };
+  let cum = 0;
+  for (const stage of STAGE_TABLE) {
+    cum += stage.km;
+    map[normalize(stage.to)] = cum;
+  }
+  return map;
+}
+
+// Walk the full STAGES list in order, assigning every name (major town OR small
+// hamlet) to the verified segment it falls within. This lets us ground hamlets
+// like Burguete even though they aren't in the verified major-town table.
+function buildSegmentMap() {
+  const map = {};
+  let segIdx = 0;
+  let fromCum = 0;
+  for (const name of STAGES) {
+    const norm = normalize(name);
+    if (segIdx >= STAGE_TABLE.length) break;
+    const seg = STAGE_TABLE[segIdx];
+    const toCum = fromCum + seg.km;
+    map[norm] = { fromTown: seg.from, toTown: seg.to, fromCum, toCum, isExactTown: norm === normalize(seg.to) };
+    if (norm === normalize(seg.to)) {
+      fromCum = toCum;
+      segIdx++;
+    }
+  }
+  return map;
+}
+
+// Find verified anchor points (real, sourced distances) near the given start location —
+// works for both major towns AND small hamlets between them
 function findAnchors(location) {
   const cumMap = buildCumulativeMap();
+  const segMap = buildSegmentMap();
   const key = normalize(location);
-  const startCum = cumMap[key];
 
-  if (startCum === undefined) return null; // start isn't a major verified stage town — skip anchors, AI uses its own knowledge
+  // Case 1: exact major verified town — we know its precise position
+  if (cumMap[key] !== undefined) {
+    const startCum = cumMap[key];
+    const sorted = Object.entries(cumMap).sort((a, b) => a[1] - b[1]);
+    const ahead = sorted.filter(([name, cum]) => cum > startCum).slice(0, 2);
+    if (!ahead.length) return null;
+    return {
+      type: 'exact',
+      lines: ahead.map(([name, cum]) => {
+        const dist = Math.round((cum - startCum) * 10) / 10;
+        const properName = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        return `- ${properName} is at exactly ${dist}km from ${location} (verified, source: Gronze.com / Brierley's guide)`;
+      }),
+    };
+  }
 
-  // Find the next 1-2 major stage towns after this point
-  const sorted = Object.entries(cumMap).sort((a, b) => a[1] - b[1]);
-  const ahead = sorted.filter(([name, cum]) => cum > startCum).slice(0, 2);
-  if (!ahead.length) return null;
+  // Case 2: a small hamlet between two verified towns — bound it by the segment
+  const seg = segMap[key];
+  if (seg) {
+    const segLen = Math.round((seg.toCum - seg.fromCum) * 10) / 10;
+    const sorted = Object.entries(cumMap).sort((a, b) => a[1] - b[1]);
+    const ahead = sorted.filter(([name, cum]) => cum > seg.toCum).slice(0, 1);
+    const lines = [
+      `- ${location} lies between the verified towns ${seg.fromTown} and ${seg.toTown}, which are exactly ${segLen}km apart (verified, source: Gronze.com / Brierley's guide). ${location} sits a short distance past ${seg.fromTown}, so the remaining distance to ${seg.toTown} is slightly less than ${segLen}km.`,
+    ];
+    if (ahead.length) {
+      const [nextName, nextCum] = ahead[0];
+      const nextDist = Math.round((nextCum - seg.toCum) * 10) / 10;
+      const properNext = nextName.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      lines.push(`- Beyond ${seg.toTown}, the next major verified town is ${properNext}, exactly ${nextDist}km further (verified).`);
+    }
+    return { type: 'bounded', lines };
+  }
 
-  return { startCum, ahead };
+  return null; // not in our reference list at all — AI uses its own knowledge
 }
 
 module.exports = async function handler(req, res) {
@@ -101,18 +169,13 @@ module.exports = async function handler(req, res) {
 
     let finalPrompt = prompt;
 
-    // Inject verified, sourced distance anchors when the start matches a known major stage town
+    // Inject verified, sourced distance anchors — works for major towns and small hamlets alike
     if (location) {
       const anchors = findAnchors(location);
       if (anchors) {
-        const lines = anchors.ahead.map(([name, cum]) => {
-          const distFromStart = Math.round((cum - anchors.startCum) * 10) / 10;
-          const properName = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          return `- ${properName} is at exactly ${distFromStart}km from ${location} (verified, source: Gronze.com / Brierley's guide)`;
-        });
-        finalPrompt += `\n\nVERIFIED DISTANCE ANCHORS from ${location} — these are real, sourced distances, treat them as ground truth and do not contradict them:
-${lines.join('\n')}
-For any smaller intermediate village between ${location} and these anchor points, interpolate proportionally based on these verified distances rather than guessing independently — this keeps your distance estimates calibrated to reality.`;
+        finalPrompt += `\n\nVERIFIED DISTANCE ANCHORS — these are real, sourced distances from gronze.com and Brierley's guide, treat them as ground truth and do not contradict them:
+${anchors.lines.join('\n')}
+Make sure every distance you state (in "recommended", "shorter", "longer", and "full_route") stays consistent with these verified checkpoints — your total km from ${location} to any town past these checkpoints must respect the verified distances above, even when estimating smaller intermediate villages.`;
       }
     }
 
