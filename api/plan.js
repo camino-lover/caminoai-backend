@@ -28,15 +28,18 @@ module.exports = async function handler(req, res) {
 
     let finalPrompt = prompt;
 
-    // Inject verified, sourced distance anchors — now covers virtually every named
-    // stop on the route (not just major towns), since every waypoint below is
-    // sourced directly from Gronze.com's official stage-by-stage breakdown.
+    // Inject the FULL verified segment ahead — not just a few anchor points —
+    // so the AI copies real waypoints instead of inventing its own each time.
     if (location) {
       const anchors = findAnchors(location);
       if (anchors) {
-        finalPrompt += `\n\nVERIFIED DISTANCE ANCHORS — these are real, sourced distances from Gronze.com's official route breakdown, treat them as ground truth and do not contradict them:
+        finalPrompt += `\n\nVERIFIED ROUTE DATA from ${location} (source: Gronze.com's official stage-by-stage breakdown) — this is the COMPLETE real list of named stops ahead with exact distances:
 ${anchors.lines.join('\n')}
-Make sure every distance you state (in "recommended", "shorter", "longer", and "full_route") stays consistent with these verified checkpoints.`;
+
+STRICT RULES — follow these exactly:
+1. Choose "recommended", "shorter", and "longer" destinations from this verified list whenever a reasonable match exists for the target distance. If your chosen destination appears in this list, you MUST use its exact verified km value — never round, adjust, or approximate it.
+2. For "full_route", list these verified waypoints in order with their EXACT km values. Do not invent additional stops, and never list the same physical place twice under a different spelling or alternate name (e.g. Bizkarreta and Viscarret are the same place — use only one).
+3. Only add a name not on this list if you are highly confident it is real, it is not a duplicate of something already listed, and it does not contradict the verified distances around it.`;
       }
     }
 
@@ -121,6 +124,7 @@ const STAGE_TABLE = [
   { from: 'Roncesvalles', to: 'Zubiri', km: 21.4, waypoints: [
     { name: 'Burguete', km: 2.8 }, { name: 'Espinal', km: 6.5 },
     { name: 'Bizkarreta', km: 11.5 }, { name: 'Viscarret', km: 11.5 }, { name: 'Lintzoain', km: 13.4 },
+    { name: 'Puerto de Erro', km: 17.9 }, { name: 'Alto de Erro', km: 17.9 },
   ]},
   { from: 'Zubiri', to: 'Pamplona', km: 20.4, waypoints: [
     { name: 'Ilarratz', km: 2.8 }, { name: 'Larrasoaña', km: 5.5 }, { name: 'Akerreta', km: 6.1 },
@@ -274,8 +278,10 @@ function buildCumulativeMap() {
   return map;
 }
 
-// Find verified anchor points (real, sourced distances) near the given location —
-// now works for almost any named stop, not just the 33 major towns.
+// Find the full verified route segment ahead of a location — covers almost
+// every named stop, not just the 33 major towns. Alternate names for the same
+// physical place (same exact km) are merged into one line to avoid the AI
+// treating them as separate stops.
 function findAnchors(location) {
   const cumMap = buildCumulativeMap();
   const key = normalize(location);
@@ -284,14 +290,21 @@ function findAnchors(location) {
   if (startCum === undefined) return null; // genuinely not in our verified list — AI uses its own knowledge
 
   const sorted = Object.entries(cumMap).sort((a, b) => a[1] - b[1]);
-  const ahead = sorted.filter(([name, cum]) => cum > startCum).slice(0, 3);
+  const ahead = sorted.filter(([name, cum]) => cum > startCum && cum <= startCum + 50);
   if (!ahead.length) return null;
 
-  return {
-    lines: ahead.map(([name, cum]) => {
-      const dist = Math.round((cum - startCum) * 10) / 10;
-      const properName = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      return `- ${properName} is at exactly ${dist}km from ${location} (verified, source: Gronze.com)`;
-    }),
-  };
+  // Group alternate names that share the exact same verified distance
+  const byDist = {};
+  for (const [name, cum] of ahead) {
+    const dist = Math.round((cum - startCum) * 10) / 10;
+    const properName = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    if (!byDist[dist]) byDist[dist] = [];
+    byDist[dist].push(properName);
+  }
+
+  const lines = Object.entries(byDist)
+    .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
+    .map(([dist, names]) => `${names.join(' / ')}: ${dist}km`);
+
+  return { lines };
 }
