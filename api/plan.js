@@ -52,7 +52,16 @@ STRICT RULES — follow these exactly:
         const geoData = await geoRes.json();
         const results = geoData.results || [];
         const wantCountry = ['saint-jean-pied-de-port', 'orisson', 'honto'].includes(normalize(location)) ? 'FR' : 'ES';
-        const place = results.find(r => r.country_code === wantCountry) || results[0];
+
+        // Country alone isn't enough — there's a second "Roncesvalles" in Madrid,
+        // and likely other duplicate village names too. Prefer a match in one of
+        // the real Camino Francés regions; only fall back to country-only if none found.
+        const CAMINO_REGIONS = ['navarra', 'navarre', 'la rioja', 'castilla y leon', 'castilla y león', 'galicia', 'pais vasco', 'país vasco', 'aquitaine', 'nouvelle-aquitaine'];
+        const countryMatches = results.filter(r => r.country_code === wantCountry);
+        const place =
+          countryMatches.find(r => CAMINO_REGIONS.includes(normalize(r.admin1 || ''))) ||
+          countryMatches[0] ||
+          results[0];
 
         if (place) {
           const wRes = await fetch(
@@ -62,7 +71,7 @@ STRICT RULES — follow these exactly:
 
           if (wData.daily && wData.daily.temperature_2m_max) {
             const d = wData.daily;
-            finalPrompt += `\n\nREAL CURRENT WEATHER DATA for ${location}, ${place.country || ''} (lat ${place.latitude}, lon ${place.longitude}) — use these EXACT numbers in your "weather" field, do NOT invent different numbers:
+            finalPrompt += `\n\nREAL CURRENT WEATHER DATA for ${location}, ${place.admin1 || ''} ${place.country || ''} (lat ${place.latitude}, lon ${place.longitude}) — use these EXACT numbers in your "weather" field, do NOT invent different numbers:
 Today: high ${Math.round(d.temperature_2m_max[0])}°C, low ${Math.round(d.temperature_2m_min[0])}°C, ${d.precipitation_probability_max[0]}% chance of rain.
 Tomorrow: high ${Math.round(d.temperature_2m_max[1])}°C, low ${Math.round(d.temperature_2m_min[1])}°C, ${d.precipitation_probability_max[1]}% chance of rain.`;
           }
