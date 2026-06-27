@@ -38,8 +38,9 @@ ${anchors.lines.join('\n')}
 
 STRICT RULES — follow these exactly:
 1. Choose "recommended", "shorter", and "longer" destinations from this verified list whenever a reasonable match exists for the target distance. If your chosen destination appears in this list, you MUST use its exact verified km value — never round, adjust, or approximate it.
-2. For "full_route", list these verified waypoints in order with their EXACT km values. Do not invent additional stops, and never list the same physical place twice under a different spelling or alternate name (e.g. Bizkarreta and Viscarret are the same place — use only one).
-3. Only add a name not on this list if you are highly confident it is real, it is not a duplicate of something already listed, and it does not contradict the verified distances around it.`;
+2. NEVER choose a destination marked "[NO ACCOMMODATION]" as your recommended, shorter, or longer stop — these are mountain passes, crosses, or viewpoints with nowhere to sleep. If the target distance lands near one of these, choose the nearest REAL village instead (slightly before or after).
+3. For "full_route", list these verified waypoints in order with their EXACT km values — including the no-accommodation ones, since they're still real points along the path, just not valid overnight stops. Never list the same physical place twice under a different spelling or alternate name (e.g. Bizkarreta and Viscarret are the same place — use only one).
+4. Only add a name not on this list if you are highly confident it is real, it is not a duplicate of something already listed, and it does not contradict the verified distances around it.`;
       }
     }
 
@@ -128,12 +129,12 @@ Tomorrow: high ${Math.round(d.temperature_2m_max[1])}°C, low ${Math.round(d.tem
 const STAGE_TABLE = [
   { from: 'Saint-Jean-Pied-de-Port', to: 'Roncesvalles', km: 24.2, waypoints: [
     { name: 'Honto', km: 5.0 }, { name: 'Orisson', km: 7.6 },
-    { name: 'Collado de Bentartea', km: 16.2 }, { name: 'Collado de Lepoeder', km: 20.2 },
+    { name: 'Collado de Bentartea', km: 16.2, noStop: true }, { name: 'Collado de Lepoeder', km: 20.2, noStop: true },
   ]},
   { from: 'Roncesvalles', to: 'Zubiri', km: 21.4, waypoints: [
     { name: 'Burguete', km: 2.8 }, { name: 'Espinal', km: 6.5 },
     { name: 'Bizkarreta', km: 11.5 }, { name: 'Viscarret', km: 11.5 }, { name: 'Lintzoain', km: 13.4 },
-    { name: 'Puerto de Erro', km: 17.9 }, { name: 'Alto de Erro', km: 17.9 },
+    { name: 'Puerto de Erro', km: 17.9, noStop: true }, { name: 'Alto de Erro', km: 17.9, noStop: true },
   ]},
   { from: 'Zubiri', to: 'Pamplona', km: 20.4, waypoints: [
     { name: 'Ilarratz', km: 2.8 }, { name: 'Larrasoaña', km: 5.5 }, { name: 'Akerreta', km: 6.1 },
@@ -141,14 +142,14 @@ const STAGE_TABLE = [
     { name: 'Villava', km: 16.4 }, { name: 'Burlada', km: 17.5 },
   ]},
   { from: 'Pamplona', to: 'Puente la Reina', km: 23.9, waypoints: [
-    { name: 'Cizur Menor', km: 4.9 }, { name: 'Zariquiegui', km: 11.0 }, { name: 'Alto del Perdón', km: 13.3 },
+    { name: 'Cizur Menor', km: 4.9 }, { name: 'Zariquiegui', km: 11.0 }, { name: 'Alto del Perdón', km: 13.3, noStop: true },
     { name: 'Uterga', km: 16.8 }, { name: 'Muruzábal', km: 19.5 }, { name: 'Obanos', km: 21.3 },
   ]},
   { from: 'Puente la Reina', to: 'Estella', km: 21.6, waypoints: [
     { name: 'Mañeru', km: 4.8 }, { name: 'Cirauqui', km: 7.5 }, { name: 'Lorca', km: 13.2 }, { name: 'Villatuerta', km: 17.8 },
   ]},
   { from: 'Estella', to: 'Los Arcos', km: 21.3, waypoints: [
-    { name: 'Ayegui', km: 1.8 }, { name: 'Monasterio de Irache', km: 2.7 }, { name: 'Irache', km: 4.1 },
+    { name: 'Ayegui', km: 1.8 }, { name: 'Monasterio de Irache', km: 2.7, noStop: true }, { name: 'Irache', km: 4.1 },
     { name: 'Ázqueta', km: 7.3 }, { name: 'Villamayor de Monjardín', km: 9.1 },
   ]},
   { from: 'Los Arcos', to: 'Logroño', km: 27.6, waypoints: [
@@ -214,7 +215,7 @@ const STAGE_TABLE = [
     { name: 'El Ganso', km: 13.3 }, { name: 'Rabanal del Camino', km: 20.2 },
   ]},
   { from: 'Foncebadón', to: 'Ponferrada', km: 26.8, waypoints: [
-    { name: 'Cruz de Ferro', km: 1.9 }, { name: 'Manjarín', km: 4.2 }, { name: 'El Acebo', km: 11.2 },
+    { name: 'Cruz de Ferro', km: 1.9, noStop: true }, { name: 'Manjarín', km: 4.2 }, { name: 'El Acebo', km: 11.2 },
     { name: 'El Acebo de San Miguel', km: 11.2 }, { name: 'Riego de Ambrós', km: 14.5 },
     { name: 'Molinaseca', km: 19.1 }, { name: 'Campo', km: 23.5 },
   ]},
@@ -271,18 +272,20 @@ function normalize(str) {
 }
 
 // Build one flat cumulative-km-from-Saint-Jean map covering every verified
-// town AND every verified intra-stage hamlet.
+// town AND every verified intra-stage hamlet. Each entry also carries whether
+// it's a real village (can be recommended as an overnight stop) or just a
+// geographic waypoint like a mountain pass or landmark (cannot).
 function buildCumulativeMap() {
-  const map = { [normalize('Saint-Jean-Pied-de-Port')]: 0 };
+  const map = { [normalize('Saint-Jean-Pied-de-Port')]: { cum: 0, noStop: false } };
   let cum = 0;
   for (const stage of STAGE_TABLE) {
     for (const wp of stage.waypoints || []) {
       const wpCum = cum + wp.km;
       const key = normalize(wp.name);
-      if (map[key] === undefined) map[key] = wpCum; // first occurrence wins (handles alt-name duplicates)
+      if (map[key] === undefined) map[key] = { cum: wpCum, noStop: !!wp.noStop };
     }
     cum += stage.km;
-    map[normalize(stage.to)] = cum;
+    map[normalize(stage.to)] = { cum, noStop: false }; // every stage endpoint is always a real town
   }
   return map;
 }
@@ -290,30 +293,37 @@ function buildCumulativeMap() {
 // Find the full verified route segment ahead of a location — covers almost
 // every named stop, not just the 33 major towns. Alternate names for the same
 // physical place (same exact km) are merged into one line to avoid the AI
-// treating them as separate stops.
+// treating them as separate stops. Geographic waypoints (mountain passes,
+// crosses, viewpoints with no accommodation) are clearly flagged so the AI
+// never recommends stopping overnight there.
 function findAnchors(location) {
   const cumMap = buildCumulativeMap();
   const key = normalize(location);
-  const startCum = cumMap[key];
+  const startEntry = cumMap[key];
 
-  if (startCum === undefined) return null; // genuinely not in our verified list — AI uses its own knowledge
+  if (startEntry === undefined) return null; // genuinely not in our verified list — AI uses its own knowledge
+  const startCum = startEntry.cum;
 
-  const sorted = Object.entries(cumMap).sort((a, b) => a[1] - b[1]);
-  const ahead = sorted.filter(([name, cum]) => cum > startCum && cum <= startCum + 50);
+  const sorted = Object.entries(cumMap).sort((a, b) => a[1].cum - b[1].cum);
+  const ahead = sorted.filter(([name, e]) => e.cum > startCum && e.cum <= startCum + 50);
   if (!ahead.length) return null;
 
   // Group alternate names that share the exact same verified distance
   const byDist = {};
-  for (const [name, cum] of ahead) {
-    const dist = Math.round((cum - startCum) * 10) / 10;
+  for (const [name, e] of ahead) {
+    const dist = Math.round((e.cum - startCum) * 10) / 10;
     const properName = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    if (!byDist[dist]) byDist[dist] = [];
-    byDist[dist].push(properName);
+    if (!byDist[dist]) byDist[dist] = { names: [], noStop: e.noStop };
+    byDist[dist].names.push(properName);
+    if (!e.noStop) byDist[dist].noStop = false; // if ANY alternate name is a real stop, treat the point as stoppable
   }
 
   const lines = Object.entries(byDist)
     .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
-    .map(([dist, names]) => `${names.join(' / ')}: ${dist}km`);
+    .map(([dist, info]) => {
+      const tag = info.noStop ? '  [NO ACCOMMODATION — mountain pass/landmark only, do NOT recommend as a stop]' : '';
+      return `${info.names.join(' / ')}: ${dist}km${tag}`;
+    });
 
   return { lines };
 }
